@@ -1,6 +1,7 @@
 def main():
-    print("Use python train.py to train the model.")
-    print("Use python predict.py to fill Source using the saved model.")
+    print("Edit data/blacklist.txt to manage blocked hosts.")
+    print("Put CSV files in data/sample_data.")
+    print("Use python predict.py to apply the rules to every sample CSV.")
 
 
 if __name__ == "__main__":
