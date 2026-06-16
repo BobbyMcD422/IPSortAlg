@@ -74,6 +74,48 @@ def save_new_blacklist_entries(blacklist_file, entries):
             file.write(f"{entry}\n")
 
 
+def normalize_event_columns(df):
+    renamed_columns = {}
+
+    for column in df.columns:
+        normalized = str(column).strip().lower()
+        if normalized == "time":
+            renamed_columns[column] = "time"
+        elif normalized == "ip":
+            renamed_columns[column] = "IP"
+        elif normalized.startswith("source"):
+            renamed_columns[column] = "Source"
+        else:
+            renamed_columns[column] = str(column).strip()
+
+    return df.rename(columns=renamed_columns)
+
+
+def find_header_row(raw_df):
+    for index, row in raw_df.iterrows():
+        values = {str(value).strip().lower() for value in row.dropna()}
+        if "time" in values and "ip" in values:
+            return index
+
+    raise ValueError("Could not find a header row containing time and IP")
+
+
+def read_event_file(data_file):
+    suffix = data_file.suffix.lower()
+
+    if suffix == ".csv":
+        return normalize_event_columns(pd.read_csv(data_file))
+    if suffix == ".xlsx":
+        raw_df = pd.read_excel(data_file, header=None)
+        header_row = find_header_row(raw_df)
+        df = raw_df.iloc[header_row + 1:].copy()
+        df.columns = raw_df.iloc[header_row].astype(str).str.strip()
+        df = df.dropna(how="all").reset_index(drop=True)
+        return normalize_event_columns(df)
+
+    raise ValueError(f"Unsupported input file type: {data_file.suffix}")
+
+
 def apply_rules(
     data_file,
     blacklist_file="data/blacklist.txt",
@@ -84,7 +126,7 @@ def apply_rules(
     blacklist_file = Path(blacklist_file)
     output_file = Path(output_file)
 
-    df = pd.read_csv(data_file)
+    df = read_event_file(data_file)
     required_columns = {"time", "IP"}
     missing_columns = required_columns.difference(df.columns)
 

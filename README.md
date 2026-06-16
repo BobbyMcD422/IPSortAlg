@@ -1,6 +1,7 @@
 # IP Sort
 
-IP Sort is a deterministic network-event classifier. It reads a CSV file,
+IP Sort is a deterministic network-event classifier. It reads CSV and Excel
+files,
 applies an ordered set of security rules, and labels each row as `attack` or
 `normal`.
 
@@ -43,6 +44,7 @@ ipsort/
 
 - Python 3
 - pandas 2.0 or newer
+- openpyxl 3.1 or newer
 
 Install dependencies:
 
@@ -59,7 +61,7 @@ pip install -r requirements.txt
 
 ## Input Format
 
-The input must be a CSV containing at least:
+The input must be a `.csv` or `.xlsx` file containing at least:
 
 ```csv
 time,IP
@@ -75,7 +77,7 @@ time,IP
 
 ## Run
 
-Place CSV files in `data/sample_data/`.
+Place `.csv` or `.xlsx` files in `data/sample_data/`.
 
 Then run:
 
@@ -88,6 +90,12 @@ Each processed sheet is saved to:
 ```text
 data/predictions/<original_file_name>_predictions.csv
 ```
+
+Excel files are read from the first sheet and are also written back out as CSV
+prediction files.
+If an Excel sheet has title rows before the table, IP Sort looks for the first
+row containing both `time` and `IP` and uses that as the header row. Source
+columns named like `Source (attack or not)` are normalized to `Source`.
 
 If the input already contains a `Source` column, the program prints its
 accuracy against those original labels before replacing them in the output.
