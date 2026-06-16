@@ -1,7 +1,14 @@
+import predict
+import review_blacklist
+
+
 def main():
-    print("Edit data/blacklist.txt to manage blocked hosts.")
-    print("Put CSV files in data/sample_data.")
-    print("Use python predict.py to apply the rules to every sample CSV.")
+    print("Applying rules to sample data...")
+    print()
+    predict.main()
+    print()
+    print("Reviewing blacklist candidates...")
+    review_blacklist.main()
 
 
 if __name__ == "__main__":

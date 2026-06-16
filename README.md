@@ -87,6 +87,15 @@ Then run:
 python predict.py
 ```
 
+Or run the full console workflow:
+
+```powershell
+python main.py
+```
+
+`main.py` applies the rules to every sample file, then opens an interactive
+review step where you can approve candidate hosts for `data/blacklist.txt`.
+
 Each processed sheet is saved to:
 
 ```text
@@ -141,6 +150,27 @@ Review `data/blacklist_candidates.txt` periodically. Move only confirmed bad
 entries into `data/blacklist.txt`. Once an IP address or hostname is persisted
 in the blacklist, all of its events will be classified as attacks on later
 runs.
+
+You can review candidates interactively:
+
+```powershell
+python review_blacklist.py
+```
+
+The review tool shows each candidate host, the rule reason that flagged it,
+the prediction files where it appeared, and asks whether to add it to the
+permanent blacklist.
+
+When prompted:
+
+```text
+Add this host to blacklist.txt? [y/N/q]:
+```
+
+- Type `y` to approve the host and add it to `data/blacklist.txt`.
+- Type `n` or press Enter to skip that host.
+- Type `q` to stop reviewing the remaining candidates. Any hosts already
+  approved with `y` are still added.
 
 ## Use as a Library
 

@@ -84,6 +84,48 @@ def save_new_candidate_entries(candidate_file, entries):
             file.write(f"{entry}\n")
 
 
+def append_unique_entries(target_file, entries):
+    target_file = Path(target_file)
+    existing_entries = load_blacklist(target_file)
+    new_entries = sorted(set(entries).difference(existing_entries))
+
+    if not new_entries:
+        return []
+
+    target_file.parent.mkdir(parents=True, exist_ok=True)
+    needs_leading_newline = (
+        target_file.exists()
+        and target_file.stat().st_size > 0
+        and not target_file.read_bytes().endswith(b"\n")
+    )
+
+    with target_file.open("a", encoding="utf-8") as file:
+        if needs_leading_newline:
+            file.write("\n")
+        for entry in new_entries:
+            file.write(f"{entry}\n")
+
+    return new_entries
+
+
+def remove_entries(target_file, entries):
+    target_file = Path(target_file)
+
+    if not target_file.exists():
+        return
+
+    entries = set(entries)
+    kept_lines = []
+
+    for line in target_file.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip().lower()
+        if stripped in entries:
+            continue
+        kept_lines.append(line)
+
+    target_file.write_text("\n".join(kept_lines) + "\n", encoding="utf-8")
+
+
 def normalize_event_columns(df):
     renamed_columns = {}
 
