@@ -7,6 +7,10 @@ import pandas as pd
 
 ATTACK_LABEL = "attack"
 NORMAL_LABEL = "normal"
+BURST_HOST_THRESHOLD = 5
+BURST_WINDOW_SECONDS = 5
+EXTREME_BURST_THRESHOLD = 50
+EXTREME_BURST_WINDOW_SECONDS = 2
 
 
 def load_blacklist(blacklist_file):
@@ -56,21 +60,27 @@ def is_valid_host(host):
     return bool(hostname_pattern.fullmatch(host))
 
 
-def save_new_blacklist_entries(blacklist_file, entries):
+def save_new_candidate_entries(candidate_file, entries):
     if not entries:
         return
 
-    blacklist_file.parent.mkdir(parents=True, exist_ok=True)
+    existing_entries = load_blacklist(candidate_file)
+    new_entries = sorted(set(entries).difference(existing_entries))
+
+    if not new_entries:
+        return
+
+    candidate_file.parent.mkdir(parents=True, exist_ok=True)
     needs_leading_newline = (
-        blacklist_file.exists()
-        and blacklist_file.stat().st_size > 0
-        and not blacklist_file.read_bytes().endswith(b"\n")
+        candidate_file.exists()
+        and candidate_file.stat().st_size > 0
+        and not candidate_file.read_bytes().endswith(b"\n")
     )
 
-    with blacklist_file.open("a", encoding="utf-8") as file:
+    with candidate_file.open("a", encoding="utf-8") as file:
         if needs_leading_newline:
             file.write("\n")
-        for entry in sorted(entries):
+        for entry in new_entries:
             file.write(f"{entry}\n")
 
 
@@ -116,14 +126,29 @@ def read_event_file(data_file):
     raise ValueError(f"Unsupported input file type: {data_file.suffix}")
 
 
+def max_events_in_window(times, window_seconds):
+    sorted_times = sorted(times)
+    best_count = 0
+    window_start = 0
+
+    for window_end, event_time in enumerate(sorted_times):
+        while sorted_times[window_start] < event_time - window_seconds:
+            window_start += 1
+        best_count = max(best_count, window_end - window_start + 1)
+
+    return best_count
+
+
 def apply_rules(
     data_file,
     blacklist_file="data/blacklist.txt",
+    blacklist_candidates_file="data/blacklist_candidates.txt",
     output_file="data/predictions.csv",
     target_column="Source",
 ):
     data_file = Path(data_file)
     blacklist_file = Path(blacklist_file)
+    blacklist_candidates_file = Path(blacklist_candidates_file)
     output_file = Path(output_file)
 
     df = read_event_file(data_file)
@@ -152,40 +177,67 @@ def apply_rules(
     working["_time"] = pd.to_numeric(working["time"], errors="raise")
     working["_endpoint"] = working["IP"].astype(str).str.strip().str.lower()
     working["_host"] = working["_endpoint"].map(extract_host)
+    max_burst_counts = (
+        working.groupby("_host")["_time"]
+        .apply(lambda times: max_events_in_window(times, BURST_WINDOW_SECONDS))
+        .to_dict()
+    )
+    working["_host_max_burst_events"] = working["_host"].map(max_burst_counts)
     working = working.sort_values(["_time", "_original_order"]).reset_index(drop=True)
 
     host_windows_5 = defaultdict(deque)
     host_windows_30 = defaultdict(deque)
+    host_windows_extreme_burst = defaultdict(deque)
     labels = []
     reasons = []
     counts_5 = []
     counts_30 = []
-    newly_blacklisted = set()
+    counts_extreme_burst = []
+    candidate_hosts = set()
 
-    events = zip(working["_host"], working["_endpoint"], working["_time"])
-    for host, endpoint, event_time in events:
+    events = zip(
+        working["_host"],
+        working["_endpoint"],
+        working["_time"],
+        working["_host_max_burst_events"],
+    )
+    for host, endpoint, event_time, host_max_burst_events in events:
         window_5 = host_windows_5[host]
         window_30 = host_windows_30[host]
+        window_extreme_burst = host_windows_extreme_burst[host]
 
         while window_5 and window_5[0] < event_time - 5:
             window_5.popleft()
         while window_30 and window_30[0] < event_time - 30:
             window_30.popleft()
+        while (
+            window_extreme_burst
+            and window_extreme_burst[0] < event_time - EXTREME_BURST_WINDOW_SECONDS
+        ):
+            window_extreme_burst.popleft()
 
         window_5.append(event_time)
         window_30.append(event_time)
+        window_extreme_burst.append(event_time)
         count_5 = len(window_5)
         count_30 = len(window_30)
+        count_extreme_burst = len(window_extreme_burst)
 
         if host in blacklist or endpoint in blacklist:
             label = ATTACK_LABEL
             reason = "blacklist"
-        elif count_5 >= 3:
+        elif host_max_burst_events >= BURST_HOST_THRESHOLD:
             label = ATTACK_LABEL
-            reason = "3_or_more_events_from_same_host_within_5_seconds"
-        elif count_30 >= 5:
+            reason = (
+                f"{BURST_HOST_THRESHOLD}_or_more_events_from_same_host_within_"
+                f"{BURST_WINDOW_SECONDS}_seconds"
+            )
+        elif count_extreme_burst >= EXTREME_BURST_THRESHOLD:
             label = ATTACK_LABEL
-            reason = "5_or_more_events_from_same_host_within_30_seconds"
+            reason = (
+                f"{EXTREME_BURST_THRESHOLD}_or_more_events_from_same_host_within_"
+                f"{EXTREME_BURST_WINDOW_SECONDS}_seconds"
+            )
         else:
             label = NORMAL_LABEL
             reason = "no_rule_matched"
@@ -195,16 +247,22 @@ def apply_rules(
             and reason != "blacklist"
             and is_valid_host(host)
         ):
-            blacklist.add(host)
-            newly_blacklisted.add(host)
+            candidate_hosts.add(host)
 
         labels.append(label)
         reasons.append(reason)
         counts_5.append(count_5)
         counts_30.append(count_30)
+        counts_extreme_burst.append(count_extreme_burst)
 
     working[target_column] = labels
     working["rule_match"] = reasons
+    working[
+        f"max_same_host_events_within_{BURST_WINDOW_SECONDS}_seconds"
+    ] = working["_host_max_burst_events"]
+    working[
+        f"same_host_events_last_{EXTREME_BURST_WINDOW_SECONDS}_seconds"
+    ] = counts_extreme_burst
     working["same_host_events_last_5_seconds"] = counts_5
     working["same_host_events_last_30_seconds"] = counts_30
     working = working.sort_values("_original_order")
@@ -217,6 +275,8 @@ def apply_rules(
         output_columns
         + [
             "rule_match",
+            f"max_same_host_events_within_{BURST_WINDOW_SECONDS}_seconds",
+            f"same_host_events_last_{EXTREME_BURST_WINDOW_SECONDS}_seconds",
             "same_host_events_last_5_seconds",
             "same_host_events_last_30_seconds",
         ]
@@ -224,7 +284,7 @@ def apply_rules(
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     results.to_csv(output_file, index=False)
-    save_new_blacklist_entries(blacklist_file, newly_blacklisted)
+    save_new_candidate_entries(blacklist_candidates_file, candidate_hosts)
 
     accuracy = None
     if expected_labels is not None:
@@ -234,10 +294,11 @@ def apply_rules(
     return {
         "data_file": data_file,
         "blacklist_file": blacklist_file,
+        "blacklist_candidates_file": blacklist_candidates_file,
         "output_file": output_file,
         "rows_checked": len(results),
         "attacks_found": int((results[target_column] == ATTACK_LABEL).sum()),
-        "newly_blacklisted": sorted(newly_blacklisted),
+        "candidate_hosts": sorted(candidate_hosts),
         "accuracy": accuracy,
         "results": results,
         "target_column": target_column,

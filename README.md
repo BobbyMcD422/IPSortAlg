@@ -13,15 +13,16 @@ Rules are evaluated in this order:
 
 1. Mark the event as an attack if its IP, hostname, or full `host:port` value
    appears in `data/blacklist.txt`.
-2. Mark the event as an attack if the same host appears at least 3 times within
-   5 seconds.
-3. Mark the event as an attack if the same host appears at least 5 times within
-   30 seconds.
+2. Mark every event from a host as an attack if that same host appears at
+   least 5 times within any 5-second window in the input file.
+3. Mark the event as an attack if the same source host appears at least 50
+   times within 2 seconds.
 4. Otherwise, mark the event as normal.
 
-When an IP address or hostname triggers rule 2 or rule 3, it is automatically
-added to the blacklist. Later events from that host, including events in future
-runs, will match the blacklist rule.
+When an IP address or hostname triggers rule 2 or rule 3, it is written to
+`data/blacklist_candidates.txt` for review. It is not automatically added to
+the permanent blacklist because the sample data shows the same host can be
+malicious in one file and normal in another.
 
 ## Project Structure
 
@@ -35,6 +36,7 @@ ipsort/
     rules.py
   data/
     blacklist.txt
+    blacklist_candidates.txt
     predictions/
     sample_data/
       Honeynet botnet attack timestamp 32 qubits final copy - Sheet1.csv
@@ -108,6 +110,8 @@ The output preserves the original columns and adds or fills:
 ```text
 Source
 rule_match
+max_same_host_events_within_5_seconds
+same_host_events_last_2_seconds
 same_host_events_last_5_seconds
 same_host_events_last_30_seconds
 ```
@@ -115,9 +119,9 @@ same_host_events_last_30_seconds
 Example:
 
 ```csv
-time,IP,Source,rule_match
-1.457799704,142.93.3.154:8080,normal,no_rule_matched
-3.257728777,142.93.3.154:8080,attack,3_or_more_events_from_same_host_within_5_seconds
+time,IP,Source,rule_match,max_same_host_events_within_5_seconds
+1.457799704,142.93.3.154:8080,attack,5_or_more_events_from_same_host_within_5_seconds,10
+3.512656598,149.28.57.219:80,normal,no_rule_matched,2
 ```
 
 ## Blacklist
@@ -133,9 +137,10 @@ malicious.example.com
 Blank lines and lines beginning with `#` are ignored. A host-only entry blocks
 that host on every port. A full `host:port` entry blocks only that endpoint.
 
-Review automatically added entries periodically. Once an IP address or
-hostname is persisted in the blacklist, all of its events will be classified
-as attacks on later runs.
+Review `data/blacklist_candidates.txt` periodically. Move only confirmed bad
+entries into `data/blacklist.txt`. Once an IP address or hostname is persisted
+in the blacklist, all of its events will be classified as attacks on later
+runs.
 
 ## Use as a Library
 
@@ -149,5 +154,5 @@ result = apply_rules(
 )
 
 print(result["attacks_found"])
-print(result["newly_blacklisted"])
+print(result["candidate_hosts"])
 ```

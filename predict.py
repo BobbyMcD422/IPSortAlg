@@ -20,8 +20,9 @@ def print_result(result):
             f"(blank treated as normal): {result['accuracy']:.4f}"
         )
     print(f"Blacklist: {result['blacklist_file']}")
-    print(f"New hosts added to blacklist: {len(result['newly_blacklisted'])}")
-    for host in result["newly_blacklisted"]:
+    print(f"Blacklist candidates: {result['blacklist_candidates_file']}")
+    print(f"Hosts suggested for review: {len(result['candidate_hosts'])}")
+    for host in result["candidate_hosts"]:
         print(f"  {host}")
     print(f"Saved filled sheet to {result['output_file']}")
     print()
@@ -67,7 +68,7 @@ def main():
         {
             host
             for result in results
-            for host in result["newly_blacklisted"]
+            for host in result["candidate_hosts"]
         }
     )
 
@@ -75,7 +76,7 @@ def main():
     print(f"Files processed: {len(results)}")
     print(f"Rows checked: {rows_checked}")
     print(f"Attacks found: {attacks_found}")
-    print(f"New hosts added to blacklist: {len(newly_blacklisted)}")
+    print(f"Hosts suggested for review: {len(newly_blacklisted)}")
 
 
 if __name__ == "__main__":
