@@ -194,5 +194,6 @@ print(result["candidate_hosts"])
 
 ## Possible Next Steps / Improvements
 * Dynamic Time Range / Rules Based On Average Vs. Above Average Time
+* Move Rules into a Seperate File / Config File (?)
 * Maybe a Jupyter Notebook or Webpage / Something to Graphically Display the Results (may be a little more structured or convenient)
 * Set Rule Function (?)
