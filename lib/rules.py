@@ -1,3 +1,10 @@
+"""Core rule engine for deterministic network-event classification.
+
+This module loads CSV/XLSX event files, normalizes their columns, applies the
+ordered attack rules, writes prediction output, and maintains review candidates
+for the permanent blacklist.
+"""
+
 from collections import defaultdict, deque
 from ipaddress import ip_address
 from pathlib import Path
@@ -14,6 +21,7 @@ EXTREME_BURST_WINDOW_SECONDS = 2
 
 
 def load_blacklist(blacklist_file):
+    """Return non-comment blacklist entries as lowercase strings."""
     blacklist_file = Path(blacklist_file)
 
     if not blacklist_file.exists():
@@ -27,6 +35,7 @@ def load_blacklist(blacklist_file):
 
 
 def extract_host(endpoint):
+    """Extract the host from an IP/hostname value that may include a port."""
     endpoint = str(endpoint).strip().lower()
 
     if endpoint.startswith("[") and "]" in endpoint:
@@ -41,6 +50,7 @@ def extract_host(endpoint):
 
 
 def is_valid_host(host):
+    """Return True when a value looks like an IP address or DNS hostname."""
     if not host or host in {"nan", "none"}:
         return False
 
@@ -61,6 +71,7 @@ def is_valid_host(host):
 
 
 def save_new_candidate_entries(candidate_file, entries):
+    """Append new review candidates without duplicating existing entries."""
     if not entries:
         return
 
@@ -85,6 +96,7 @@ def save_new_candidate_entries(candidate_file, entries):
 
 
 def append_unique_entries(target_file, entries):
+    """Append entries to a text file and return the entries that were added."""
     target_file = Path(target_file)
     existing_entries = load_blacklist(target_file)
     new_entries = sorted(set(entries).difference(existing_entries))
@@ -109,6 +121,7 @@ def append_unique_entries(target_file, entries):
 
 
 def remove_entries(target_file, entries):
+    """Remove exact lowercase entries from a newline-delimited text file."""
     target_file = Path(target_file)
 
     if not target_file.exists():
@@ -127,6 +140,7 @@ def remove_entries(target_file, entries):
 
 
 def normalize_event_columns(df):
+    """Normalize common input column names to the names used by the rules."""
     renamed_columns = {}
 
     for column in df.columns:
@@ -144,6 +158,7 @@ def normalize_event_columns(df):
 
 
 def find_header_row(raw_df):
+    """Find the first Excel row that appears to contain the event table header."""
     for index, row in raw_df.iterrows():
         values = {str(value).strip().lower() for value in row.dropna()}
         if "time" in values and "ip" in values:
@@ -153,6 +168,7 @@ def find_header_row(raw_df):
 
 
 def read_event_file(data_file):
+    """Read a CSV or XLSX file and return a normalized event DataFrame."""
     suffix = data_file.suffix.lower()
 
     if suffix == ".csv":
@@ -169,11 +185,13 @@ def read_event_file(data_file):
 
 
 def max_events_in_window(times, window_seconds):
+    """Return the largest count of events inside any rolling time window."""
     sorted_times = sorted(times)
     best_count = 0
     window_start = 0
 
     for window_end, event_time in enumerate(sorted_times):
+        # Move the left edge forward until the window contains only recent events.
         while sorted_times[window_start] < event_time - window_seconds:
             window_start += 1
         best_count = max(best_count, window_end - window_start + 1)
@@ -188,6 +206,10 @@ def apply_rules(
     output_file="data/predictions.csv",
     target_column="Source",
 ):
+    """Apply the ordered rules to one input file and write a prediction CSV.
+
+    Returns a summary dictionary used by the command-line scripts.
+    """
     data_file = Path(data_file)
     blacklist_file = Path(blacklist_file)
     blacklist_candidates_file = Path(blacklist_candidates_file)
@@ -219,6 +241,8 @@ def apply_rules(
     working["_time"] = pd.to_numeric(working["time"], errors="raise")
     working["_endpoint"] = working["IP"].astype(str).str.strip().str.lower()
     working["_host"] = working["_endpoint"].map(extract_host)
+    # Rule 2 is host-level: if a host has one qualifying burst anywhere in the
+    # file, every row from that host is marked as an attack.
     max_burst_counts = (
         working.groupby("_host")["_time"]
         .apply(lambda times: max_events_in_window(times, BURST_WINDOW_SECONDS))
@@ -248,6 +272,7 @@ def apply_rules(
         window_30 = host_windows_30[host]
         window_extreme_burst = host_windows_extreme_burst[host]
 
+        # Rolling deques keep per-host counts for output columns and Rule 3.
         while window_5 and window_5[0] < event_time - 5:
             window_5.popleft()
         while window_30 and window_30[0] < event_time - 30:

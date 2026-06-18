@@ -1,3 +1,5 @@
+"""Interactive console review for blacklist candidates."""
+
 from pathlib import Path
 
 import pandas as pd
@@ -10,10 +12,12 @@ PREDICTIONS_DIR = Path("data/predictions")
 
 
 def load_candidate_hosts():
+    """Load candidate hosts that are waiting for manual review."""
     return sorted(load_blacklist(CANDIDATES_FILE))
 
 
 def collect_candidate_reasons(candidate_hosts):
+    """Collect rule reasons and file evidence for each candidate host."""
     evidence = {
         host: {
             "reasons": set(),
@@ -50,6 +54,7 @@ def collect_candidate_reasons(candidate_hosts):
 
 
 def ask_to_add(host, details):
+    """Prompt the user to approve, skip, or quit for one candidate host."""
     reasons = sorted(details["reasons"]) or ["no matching prediction reason found"]
     files = sorted(details["files"]) or ["no prediction file found"]
 
@@ -68,6 +73,7 @@ def ask_to_add(host, details):
 
 
 def main():
+    """Run the interactive candidate review flow."""
     candidate_hosts = load_candidate_hosts()
 
     if not candidate_hosts:

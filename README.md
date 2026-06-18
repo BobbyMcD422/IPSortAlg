@@ -1,11 +1,16 @@
 # IP Sort
 
 IP Sort is a deterministic network-event classifier. It reads CSV and Excel
-files,
-applies an ordered set of security rules, and labels each row as `attack` or
-`normal`.
+files, applies an ordered set of security rules, and labels each row as
+`attack` or `normal`.
 
 The application does not use machine learning or generic AI inference.
+
+## Documentation
+
+- [Data Format](docs/DATA_FORMAT.md)
+- [Ruleset](docs/RULESET.md)
+- [Workflow](docs/WORKFLOW.md)
 
 ## Rules
 

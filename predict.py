@@ -1,3 +1,5 @@
+"""Run the ruleset against every CSV/XLSX file in data/sample_data."""
+
 from pathlib import Path
 
 from lib.rules import apply_rules
@@ -7,10 +9,12 @@ OUTPUT_DIR = Path("data/predictions")
 
 
 def prediction_output_path(data_file):
+    """Build the CSV output path for one input file."""
     return OUTPUT_DIR / f"{data_file.stem}_predictions.csv"
 
 
 def print_result(result):
+    """Print a readable per-file summary returned by apply_rules."""
     print(f"Applied rules to {result['data_file']}")
     print(f"Rows checked: {result['rows_checked']}")
     print(f"Attacks found: {result['attacks_found']}")
@@ -29,6 +33,7 @@ def print_result(result):
 
 
 def main():
+    """Process every supported sample file and print a run summary."""
     data_files = sorted(
         [
             path
