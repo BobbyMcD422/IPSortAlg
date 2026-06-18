@@ -6,12 +6,6 @@ files, applies an ordered set of security rules, and labels each row as
 
 The application does not use machine learning or generic AI inference.
 
-## Documentation
-
-- [Data Format](docs/DATA_FORMAT.md)
-- [Ruleset](docs/RULESET.md)
-- [Workflow](docs/WORKFLOW.md)
-
 ## Rules
 
 Rules are evaluated in this order:
