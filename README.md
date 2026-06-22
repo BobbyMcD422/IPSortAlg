@@ -192,5 +192,5 @@ print(result["candidate_hosts"])
 * Move Rules into a Seperate File / Config File (?)
 * Maybe a Jupyter Notebook or Webpage / Something to Graphically Display the Results (may be a little more structured or convenient)
 * Set Rule Function (?)
-* Risk Score -> A Constraint In QAOA | Edge Weight?
 * Queue Feature
+* Risk Score based on Average Requests Per Second -> A Constraint In QAOA | Edge Weight?
