@@ -46,6 +46,8 @@ ipsort/
 - Python 3
 - pandas 2.0 or newer
 - openpyxl 3.1 or newer
+- abuseipdb-wrapper, only needed when using `ip_score_checker.py` with
+  `--use-ip-checker`
 
 Install dependencies:
 
@@ -185,6 +187,28 @@ result = apply_rules(
 print(result["attacks_found"])
 print(result["candidate_hosts"])
 ```
+
+## Optional IP Scoring
+
+`ip_score_checker.py` is separate from the main rules workflow. It can annotate
+sample files with `abuseipdb_score` columns.
+
+Run without API calls:
+
+```powershell
+python ip_score_checker.py --testing
+```
+
+Run with AbuseIPDB lookups:
+
+```powershell
+$env:ABUSEIPDB_API_KEY="your_api_key"
+python ip_score_checker.py --testing --use-ip-checker
+```
+
+The `testing` boolean reports elapsed runtime. The `usesIPChecker` boolean
+controls whether the utility calls `abuseipdb-wrapper` or leaves score values
+blank.
 
 ## Possible Next Steps / Improvements
 * Dynamic Time Range / Rules Based On Average Vs. Above Average Time
