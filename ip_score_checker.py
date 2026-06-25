@@ -1,7 +1,7 @@
-"""Optional AbuseIPDB scoring utility kept separate from the main workflow.
+"""Optional AlienVault OTX lookup utility kept separate from the main workflow.
 
 The rule engine does not call this module. Run it directly when you want to
-annotate sample files with AbuseIPDB scores.
+annotate sample files with AlienVault OTX threat-pulse information.
 """
 
 import argparse
@@ -12,12 +12,15 @@ from pathlib import Path
 from time import perf_counter
 
 import pandas as pd
+from dotenv import load_dotenv
 
 from lib.rules import extract_host, read_event_file
 
 SAMPLE_DATA_DIR = Path("data/sample_data")
 OUTPUT_DIR = Path("data/ip_scores")
-ABUSEIPDB_API_KEY_ENV = "ABUSEIPDB_API_KEY"
+OTX_API_KEY_ENV = "OTX_API_KEY"
+
+load_dotenv()
 
 
 def is_ip_host(host):
@@ -34,86 +37,42 @@ def output_path_for(data_file):
     return OUTPUT_DIR / f"{data_file.stem}_ip_scores.csv"
 
 
-def extract_score(response):
-    """Pull an AbuseIPDB confidence score from common wrapper response shapes."""
-    if isinstance(response, dict):
-        data = response.get("data", response)
-
-        for key in (
-            "abuseConfidenceScore",
-            "abuse_confidence_score",
-            "confidence_score",
-            "score",
-        ):
-            if key in data:
-                return data[key]
-
-    for attr in (
-        "abuseConfidenceScore",
-        "abuse_confidence_score",
-        "confidence_score",
-        "score",
-    ):
-        if hasattr(response, attr):
-            return getattr(response, attr)
-
-    return None
-
-
-def build_abuseipdb_client(api_key):
-    """Create a small adapter around the installed abuseipdb-wrapper package."""
+def build_otx_checker(api_key):
+    """Create an AlienVault OTX checker from the optional OTXv2 package."""
     try:
-        module = importlib.import_module("abuseipdb_wrapper")
+        otx_module = importlib.import_module("OTXv2")
+        indicator_types = importlib.import_module("IndicatorTypes")
     except ImportError as error:
         raise ImportError(
-            "Install abuseipdb-wrapper before setting usesIPChecker=True."
+            "Install OTXv2 before setting usesIPChecker=True."
         ) from error
 
-    client_class = (
-        getattr(module, "AbuseIPDB", None)
-        or getattr(module, "AbuseIPDBClient", None)
-        or getattr(module, "Client", None)
-    )
+    otx = otx_module.OTXv2(api_key)
 
-    if client_class is None:
-        raise ImportError(
-            "Could not find an AbuseIPDB client class in abuseipdb_wrapper."
+    def check_ip(ip_value):
+        """Return OTX pulse details for one IPv4 or IPv6 address."""
+        address = ip_address(ip_value)
+        indicator_type = (
+            indicator_types.IPv4 if address.version == 4 else indicator_types.IPv6
         )
+        result = otx.get_indicator_details_by_section(
+            indicator_type=indicator_type,
+            indicator=ip_value,
+            section="general",
+        )
+        pulse_info = result.get("pulse_info", {})
+        pulses = pulse_info.get("pulses", [])
+        report_names = [
+            pulse.get("name", "Unknown Threat")
+            for pulse in pulses
+            if isinstance(pulse, dict)
+        ]
+        return {
+            "pulse_count": pulse_info.get("count", 0),
+            "report_names": report_names,
+        }
 
-    for kwargs in ({"api_key": api_key}, {"key": api_key}, {"apiKey": api_key}):
-        try:
-            client = client_class(**kwargs)
-            break
-        except TypeError:
-            client = None
-    else:
-        try:
-            client = client_class(api_key)
-        except TypeError as error:
-            raise TypeError(
-                "Could not initialize abuseipdb-wrapper with the provided API key."
-            ) from error
-
-    for method_name in ("check", "check_ip", "check_address", "ip_check"):
-        if hasattr(client, method_name):
-            method = getattr(client, method_name)
-
-            def check_ip(ip_value):
-                return extract_score(method(ip_value))
-
-            return check_ip
-
-    raise AttributeError(
-        "Could not find a supported IP-check method on the AbuseIPDB client."
-    )
-
-
-def score_ip(ip_value, checker):
-    """Return a score for one IP, or None when no checker is enabled."""
-    if checker is None:
-        return None
-
-    return checker(ip_value)
+    return check_ip
 
 
 def score_file(
@@ -123,21 +82,24 @@ def score_file(
     usesIPChecker=False,
     api_key=None,
 ):
-    """Annotate one input file with IP score columns.
+    """Annotate one input file with AlienVault OTX columns.
 
-    testing=True records elapsed runtime for local checks and AbuseIPDB checks.
-    usesIPChecker=True calls abuseipdb-wrapper; otherwise scores remain blank.
+    testing=True records elapsed runtime for local checks and OTX requests.
+    usesIPChecker=True calls AlienVault OTX; otherwise OTX values remain blank.
     """
     start_time = perf_counter()
     checker_elapsed_seconds = 0.0
     data_file = Path(data_file)
     output_file = Path(output_file) if output_file else output_path_for(data_file)
-    api_key = api_key or os.getenv(ABUSEIPDB_API_KEY_ENV)
+    api_key = api_key or os.getenv(OTX_API_KEY_ENV)
 
     if usesIPChecker and not api_key:
-        raise ValueError(f"Set {ABUSEIPDB_API_KEY_ENV} before using AbuseIPDB.")
+        raise ValueError(
+            f"Set {OTX_API_KEY_ENV} in .env or your environment before using "
+            "AlienVault OTX."
+        )
 
-    checker = build_abuseipdb_client(api_key) if usesIPChecker else None
+    checker = build_otx_checker(api_key) if usesIPChecker else None
     local_check_start = perf_counter()
     df = read_event_file(data_file)
 
@@ -148,33 +110,43 @@ def score_file(
     ip_host_flags = hosts.map(is_ip_host)
     local_elapsed_seconds = perf_counter() - local_check_start
     score_cache = {}
-    scores = []
+    pulse_counts = []
+    recent_reports = []
     statuses = []
 
     for host, is_ip in zip(hosts, ip_host_flags):
         if not is_ip:
-            scores.append(None)
+            pulse_counts.append(None)
+            recent_reports.append("")
             statuses.append("not_ip_address")
             continue
 
         if host not in score_cache:
             checker_start = perf_counter()
             try:
-                score_cache[host] = score_ip(host, checker)
+                if checker is None:
+                    score_cache[host] = (None, "", "checker_disabled")
+                else:
+                    details = checker(host)
+                    score_cache[host] = (
+                        details["pulse_count"],
+                        " | ".join(details["report_names"][:5]),
+                        "checked",
+                    )
             except Exception as error:
-                score_cache[host] = None
-                statuses.append(f"checker_error: {error}")
-                scores.append(None)
-                continue
+                score_cache[host] = (None, "", f"checker_error: {error}")
             finally:
                 checker_elapsed_seconds += perf_counter() - checker_start
 
-        scores.append(score_cache[host])
-        statuses.append("checked" if usesIPChecker else "checker_disabled")
+        pulse_count, reports, status = score_cache[host]
+        pulse_counts.append(pulse_count)
+        recent_reports.append(reports)
+        statuses.append(status)
 
     results = df.copy()
     results["ip_score_host"] = hosts
-    results["abuseipdb_score"] = scores
+    results["otx_pulse_count"] = pulse_counts
+    results["otx_recent_threat_reports"] = recent_reports
     results["ip_score_status"] = statuses
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -190,7 +162,7 @@ def score_file(
         "usesIPChecker": usesIPChecker,
         "elapsed_seconds": elapsed_seconds if testing else None,
         "local_check_elapsed_seconds": local_elapsed_seconds if testing else None,
-        "abuseipdb_elapsed_seconds": (
+        "otx_elapsed_seconds": (
             checker_elapsed_seconds if testing and usesIPChecker else None
         ),
     }
@@ -213,7 +185,7 @@ def main():
         "--use-ip-checker",
         dest="usesIPChecker",
         action="store_true",
-        help="call abuseipdb-wrapper and assign AbuseIPDB scores",
+        help="call AlienVault OTX and add threat-pulse details",
     )
     args = parser.parse_args()
 
@@ -229,18 +201,18 @@ def main():
         print(f"Scored {result['data_file']}")
         print(f"Rows checked: {result['rows_checked']}")
         print(f"Unique IP hosts: {result['unique_ip_hosts']}")
-        print(f"Used AbuseIPDB checker: {result['usesIPChecker']}")
+        print(f"Used AlienVault OTX checker: {result['usesIPChecker']}")
         if result["elapsed_seconds"] is not None:
             print(
                 "Built-in check elapsed seconds: "
                 f"{result['local_check_elapsed_seconds']:.4f}"
             )
-            if result["abuseipdb_elapsed_seconds"] is None:
-                print("AbuseIPDB elapsed seconds: skipped")
+            if result["otx_elapsed_seconds"] is None:
+                print("AlienVault OTX elapsed seconds: skipped")
             else:
                 print(
-                    "AbuseIPDB elapsed seconds: "
-                    f"{result['abuseipdb_elapsed_seconds']:.4f}"
+                    "AlienVault OTX elapsed seconds: "
+                    f"{result['otx_elapsed_seconds']:.4f}"
                 )
             print(f"Elapsed seconds: {result['elapsed_seconds']:.4f}")
         print(f"Saved scores to {result['output_file']}")

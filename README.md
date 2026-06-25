@@ -46,7 +46,7 @@ ipsort/
 - Python 3
 - pandas 2.0 or newer
 - openpyxl 3.1 or newer
-- abuseipdb-wrapper, only needed when using `ip_score_checker.py` with
+- OTXv2, only needed when using `ip_score_checker.py` with
   `--use-ip-checker`
 
 Install dependencies:
@@ -191,7 +191,7 @@ print(result["candidate_hosts"])
 ## Optional IP Scoring
 
 `ip_score_checker.py` is separate from the main rules workflow. It can annotate
-sample files with `abuseipdb_score` columns.
+sample files with `otx_pulse_count` and `otx_recent_threat_reports` columns.
 
 Run without API calls:
 
@@ -199,16 +199,32 @@ Run without API calls:
 python ip_score_checker.py --testing
 ```
 
-Run with AbuseIPDB lookups:
+Run with AlienVault OTX lookups:
+
+1. Create a `.env` file in the project directory:
+
+```dotenv
+OTX_API_KEY=your_otx_api_key
+```
+
+You can use `.env.example` as the template. The real `.env` file is ignored by
+Git.
+
+2. Run the checker:
 
 ```powershell
-$env:ABUSEIPDB_API_KEY="your_api_key"
 python ip_score_checker.py --testing --use-ip-checker
 ```
 
+The script loads `OTX_API_KEY` from `.env` automatically. An operating-system
+environment variable or the `api_key` argument to `score_file()` can also be
+used.
+
 The `testing` boolean reports elapsed runtime. The `usesIPChecker` boolean
-controls whether the utility calls `abuseipdb-wrapper` or leaves score values
-blank.
+controls whether the utility calls AlienVault OTX or leaves pulse values blank.
+Each unique IP is requested once per file. `otx_pulse_count` is the number of
+OTX threat pulses containing that address; it is threat-intelligence context,
+not a probability or an AI prediction.
 
 ## Possible Next Steps / Improvements
 * Dynamic Time Range / Rules Based On Average Vs. Above Average Time
